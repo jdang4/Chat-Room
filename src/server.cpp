@@ -9,7 +9,7 @@
 #include <thread>
 #include <mutex>
 
-#include "../utils/linked_list.h"
+#include "../utils/client_info.h"
 
 using namespace std;
 
@@ -19,10 +19,9 @@ int id = 0;
 
 mutex print_mtx, clients_mtx;  // used to prevent race condition
 
-LinkedList* clients = new LinkedList();
+vector<ClientInfo> clients;
 
 void setClientName(int id, string name);
-int broadcastNum(int num, int senderID);
 int broadcastMessage(string message, int senderID);
 void updateClient(int clientSocket, int id);
 void synchronizedPrint(string printMsg, bool endLineFlag);
@@ -63,7 +62,7 @@ int main()
 	int clientSocket;
 	unsigned int addrlen = sizeof(sockaddr_in);
 
-	cout << "\n\t  ====== Welcome to the Chat Room! ======   "<< endl;
+	cout << "\n\t  ====== Welcome to the Chat Room! ======   " << endl;
 
 	// logic when running the server
 	while (1) 
@@ -82,21 +81,17 @@ int main()
 
 		lock_guard<mutex> guard(clients_mtx);
 
-		ClientInfo new_client = { id, "Anonymous", clientSocket, (move(t)) };
-
-		clients->append(new_client);
+		clients.push_back({ id, "Anonymous", clientSocket, (move(t)) });
 	}
 
-	Node* nodeptr = clients->getHead();
-
-	while (nodeptr != NULL)
+	for (unsigned int i = 0; i < clients.size(); i++)
 	{
-		if (nodeptr->clientInfo->th.joinable())
-		{
-			nodeptr->clientInfo->th.join();
-		}
+		ClientInfo* currInfo = &clients[i];
 
-		nodeptr = nodeptr->next;
+		if (currInfo->th.joinable())
+		{
+			currInfo->th.join();
+		}
 	}
 
 	close(serverSocket);
@@ -106,53 +101,32 @@ int main()
 /* sets the client's username to name entered by client */
 void setClientName(int id, string name)
 {
-	Node* nodeptr = clients->getHead();
-
-	while (nodeptr != NULL)
+	for (unsigned int i = 0; i < clients.size(); i++)
 	{
-		if (nodeptr->clientInfo->id == id)
+		ClientInfo* currInfo = &clients[i];
+
+		if (currInfo->id == id)
 		{
-			nodeptr->clientInfo->username = name;
+			currInfo->username = name;
 			break;
 		}
-
-		nodeptr = nodeptr->next;
 	}
-}
-
-/* broadcasts a number to all clients except the sender client */
-int broadcastNum(int num, int senderID)
-{
-	Node* nodeptr = clients->getHead();
-
-	while (nodeptr != NULL)
-	{
-		if (nodeptr->clientInfo->id != senderID)
-		{
-			send(nodeptr->clientInfo->socketNum, &num, sizeof(num), 0);
-		}
-
-		nodeptr = nodeptr->next;
-	}
-
-	return 0;
 }
 
 /* broadcasts a message to all clients except the sender client */
 int broadcastMessage(string msg, int senderID)
 {
-	Node* nodeptr = clients->getHead();
+	char tmpMsg[MAX_LEN];
+	strcpy(tmpMsg, msg.c_str());
 
-	const char* tmp = msg.c_str();
-
-	while (nodeptr != NULL)
+	for (unsigned int i = 0; i < clients.size(); i++)
 	{
-		if (nodeptr->clientInfo->id != senderID)
-		{
-			send(nodeptr->clientInfo->socketNum, tmp, sizeof(tmp), 0);
-		}
+		ClientInfo* currInfo = &clients[i];
 
-		nodeptr = nodeptr->next;
+		if (currInfo->id != senderID)
+		{
+			send(currInfo->socketNum, tmpMsg, sizeof(tmpMsg), 0);
+		}
 	}
 
 	return 0;
@@ -163,13 +137,12 @@ void updateClient(int clientSocket, int id)
 {
 	char name[MAX_LEN], msg[MAX_LEN];
 	recv(clientSocket, name, sizeof(name), 0);
-
 	setClientName(id, string(name));
 
-	string joined_message = string(name).append(" has joined");
-	broadcastMessage("#NULL", id);	
-	broadcastNum(id, id);								
+	string joined_message = string(name) + string(" has joined");
+	broadcastMessage("#NULL", id);								
 	broadcastMessage(joined_message, id);
+	synchronizedPrint(joined_message, true);
 
 	while (1)
 	{
@@ -185,7 +158,6 @@ void updateClient(int clientSocket, int id)
 		{
 			string left_message = string(name).append(" has left");
 			broadcastMessage("#NULL", id);
-			broadcastNum(id, id);
 			broadcastMessage(left_message, id);
 			synchronizedPrint(left_message, true);
 			endConnection(id);
@@ -194,7 +166,6 @@ void updateClient(int clientSocket, int id)
 		}
 		
 		broadcastMessage(string(name), id);
-		broadcastNum(id, id);
 		broadcastMessage(string(msg), id);
 
 		string full_terminal_text = string(name) + ": " + string(msg);
@@ -203,7 +174,7 @@ void updateClient(int clientSocket, int id)
 }
 
 /* synchronization of print messages */
-void synchronizedPrint(string printMsg, bool endLineFlag=true)
+void synchronizedPrint(string printMsg, bool endLineFlag)
 {
 	lock_guard<mutex> guard(print_mtx);
 
@@ -216,20 +187,18 @@ void synchronizedPrint(string printMsg, bool endLineFlag=true)
 /* ends the connection for the specified client id */
 void endConnection(int id)
 {
-	Node* nodeptr = clients->getHead();
-
-	while (nodeptr != NULL)
+	for (unsigned int i = 0; clients.size(); i++)
 	{
-		if (nodeptr->clientInfo->id == id)
+		ClientInfo* currInfo = &clients[i];
+
+		if (currInfo->id == id)
 		{
 			lock_guard<mutex> guard(clients_mtx);
-			nodeptr->clientInfo->th.detach();
-			close(nodeptr->clientInfo->socketNum);
-			clients->deleteUser(id);
+			currInfo->th.detach();
+			clients.erase(clients.begin()+i);
+			close(currInfo->socketNum);
 			break;
-		} 
-
-		nodeptr = nodeptr->next;
+		}
 	}
 }
 
