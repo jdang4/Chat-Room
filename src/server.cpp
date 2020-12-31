@@ -16,6 +16,7 @@ using namespace std;
 #define MAX_LEN 200
 
 int id = 0;
+int serverSocket;
 
 mutex print_mtx, clients_mtx;  // used to prevent race condition
 
@@ -24,13 +25,18 @@ vector<ClientInfo> clients;
 void setClientName(int id, string name);
 int broadcastMessage(string message, int senderID);
 void updateClient(int clientSocket, int id);
-void synchronizedPrint(string printMsg, bool endLineFlag);
+void synchronizedPrint(string printMsg);
 void endConnection(int id);
 
 
 int main()
 {
-	int serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+	/*
+	AF_INET: IPv4 Protocol
+	SOCK_STREAM: TCP
+	0: Internet Protocol (IP) 
+	*/
+	serverSocket = socket(AF_INET, SOCK_STREAM, 0);
 
 	// check if error occured when creating the socket
 	if (serverSocket == -1)
@@ -59,7 +65,9 @@ int main()
 	}
 
 	struct sockaddr_in clientAddress;
+
 	int clientSocket;
+
 	unsigned int addrlen = sizeof(sockaddr_in);
 
 	cout << "\n\t  ====== Welcome to the Chat Room! ======   " << endl;
@@ -81,9 +89,10 @@ int main()
 
 		lock_guard<mutex> guard(clients_mtx);
 
-		clients.push_back({ id, "Anonymous", clientSocket, (move(t)) });
+		// idea is to add the thread to the struct so I can join it later by iterating through clients
+		clients.push_back({ id, "foobar", clientSocket, (move(t)) });
 	}
-
+	
 	for (unsigned int i = 0; i < clients.size(); i++)
 	{
 		ClientInfo* currInfo = &clients[i];
@@ -95,6 +104,7 @@ int main()
 	}
 
 	close(serverSocket);
+
 	return 0;
 }
 
@@ -117,7 +127,8 @@ void setClientName(int id, string name)
 int broadcastMessage(string msg, int senderID)
 {
 	char tmpMsg[MAX_LEN];
-	strcpy(tmpMsg, msg.c_str());
+
+	strncpy(tmpMsg, msg.c_str(), sizeof(msg));
 
 	for (unsigned int i = 0; i < clients.size(); i++)
 	{
@@ -136,13 +147,18 @@ int broadcastMessage(string msg, int senderID)
 void updateClient(int clientSocket, int id)
 {
 	char name[MAX_LEN], msg[MAX_LEN];
+
 	recv(clientSocket, name, sizeof(name), 0);
+
 	setClientName(id, string(name));
 
 	string joined_message = string(name) + string(" has joined");
-	broadcastMessage("#NULL", id);								
+
+	broadcastMessage("#NULL", id);	
+
 	broadcastMessage(joined_message, id);
-	synchronizedPrint(joined_message, true);
+
+	synchronizedPrint(joined_message);
 
 	while (1)
 	{
@@ -157,31 +173,33 @@ void updateClient(int clientSocket, int id)
 		if (strncmp(msg, "#exit", sizeof("#exit")) == 0)
 		{
 			string left_message = string(name).append(" has left");
+
 			broadcastMessage("#NULL", id);
+
 			broadcastMessage(left_message, id);
-			synchronizedPrint(left_message, true);
+
+			synchronizedPrint(left_message);
+
 			endConnection(id);
 
 			return;
 		}
 		
 		broadcastMessage(string(name), id);
+
 		broadcastMessage(string(msg), id);
 
 		string full_terminal_text = string(name) + ": " + string(msg);
-		synchronizedPrint(full_terminal_text, true);
+		synchronizedPrint(full_terminal_text);
 	}	
 }
 
 /* synchronization of print messages */
-void synchronizedPrint(string printMsg, bool endLineFlag)
+void synchronizedPrint(string printMsg)
 {
 	lock_guard<mutex> guard(print_mtx);
 
-	cout << printMsg;
-
-	if (endLineFlag) { cout << endl; }
-
+	cout << printMsg << endl;
 }
 
 /* ends the connection for the specified client id */
@@ -194,9 +212,13 @@ void endConnection(int id)
 		if (currInfo->id == id)
 		{
 			lock_guard<mutex> guard(clients_mtx);
+
 			currInfo->th.detach();
+
 			clients.erase(clients.begin()+i);
+
 			close(currInfo->socketNum);
+
 			break;
 		}
 	}

@@ -2,7 +2,7 @@ CFLAGS = -g -std=c++11 -Wall
 
 all: server client
 
-server: server.o node.o linked_list.o
+server: server.o
 	g++ $(CFLAGS) server.o -lpthread -o server
 
 server.o: src/server.cpp utils/client_info.h

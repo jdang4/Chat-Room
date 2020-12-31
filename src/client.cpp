@@ -9,7 +9,7 @@
 #include <thread>
 #include <mutex>
 
-#include "../utils/linked_list.h"
+#include "../utils/client_info.h"
 
 using namespace std;
 
@@ -28,19 +28,23 @@ void removeText(int count);
 
 int main()
 {
+	/*
+	AF_INET: IPv4 Protocol
+	SOCK_STREAM: TCP
+	0: Internet Protocol (IP) 
+	*/
 	clientSocket = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (clientSocket == -1)
 	{
-		cout << "error" << endl;
 		perror("Socket Error: ");
 		exit(EXIT_FAILURE);
 	}
 
 	struct sockaddr_in client;
-	client.sin_family=AF_INET;
-	client.sin_port=htons(10000); // Port no. of server
-	client.sin_addr.s_addr=INADDR_ANY;
+	client.sin_family = AF_INET;
+	client.sin_port = htons(10000); 
+	client.sin_addr.s_addr = INADDR_ANY;
 	bzero(&client.sin_zero,0);
 	
 	// check if error occurred when connecting the socket
@@ -53,7 +57,8 @@ int main()
 	signal(SIGINT, exitGracefully);
 
 	char name[MAX_LEN];
-	cout << "Enter in a username: ";
+
+	cout << "\nEnter in a username: ";
 	
 	cin.getline(name, MAX_LEN);
 
@@ -74,17 +79,23 @@ int main()
 	return 0;
 }
 
+/* handle situation when user hits ctrl+^C to exit program */
 void exitGracefully(int signal)
 {
-	char str[MAX_LEN] = "#exit";
-	send(clientSocket, str, sizeof(str), 0);
+	char msg[MAX_LEN] = "#exit";
+
+	send(clientSocket, msg, sizeof(msg), 0); // send to server
+
 	exitFlag = true;
+
 	tSend.detach();
 	tRecv.detach();
+
 	close(clientSocket);
 	exit(signal);
 }
 
+/* deletes the text from the terminal */
 void removeText(int count)
 {
 	char backSpace = 8;
@@ -95,6 +106,7 @@ void removeText(int count)
 	}
 }
 
+/* sends a message to the client's socket */
 void sendMessage(int socket)
 {
 	while (1)
@@ -103,19 +115,24 @@ void sendMessage(int socket)
 
 		cout << "You: ";
 		cin.getline(msg, MAX_LEN);
+
 		send(socket, msg, sizeof(msg), 0);
 
 		// check if client wants to leave chat room
 		if (strncmp(msg, "#exit", sizeof("#exit")) == 0)
 		{
 			exitFlag = true;
+
 			tRecv.detach();
+
 			close(socket);
+
 			return;
 		}
 	}
 }
 
+/* recieves the message from the client's socket */
 void recieveMessage(int socket)
 {
 	while (1)
@@ -130,9 +147,10 @@ void recieveMessage(int socket)
 		if (recievedBytes <= 0) { continue; }
 
 		recv(socket, msg, sizeof(msg), 0);
+
 		removeText(6);
-		
-		if (strcmp(name, "#NULL") == 0)
+
+		if (strncmp(name, "#NULL", sizeof("#NULL")) == 0)
 		{
 			cout << msg << endl;
 		}
@@ -144,6 +162,7 @@ void recieveMessage(int socket)
 		}
 
 		cout << "You: ";
+
 		fflush(stdout);
 	}
 }
